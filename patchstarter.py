@@ -3,9 +3,8 @@ import base64
 from datetime import datetime
 import json
 import os
-import plistlib
 import subprocess
-import xml
+import plistlib
 
 try:
     # Python 2 and 3 compatibility
@@ -101,7 +100,7 @@ def main():
         else:
             filename = '{}.json'.format(app_id)
         with open(os.path.join(args.output, filename), 'w') as f:
-            json.dump(output, f)
+            json.dump(output, f, indent=4)
     else:
         print(json.dumps(output, indent=4))
 
@@ -109,11 +108,16 @@ def main():
 def read_binary_plist(plist_path):
     process = subprocess.Popen(
         ['plutil', '-convert', 'json', '-o', '-', plist_path],
-        stdout=subprocess.PIPE
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
     )
-    response = process.communicate()
+    out, err = process.communicate()
+    if process.returncode != 0:
+        print(f"ERROR: Unable to read the application plist: {err.decode()}")
+        raise SystemExit(1)
+
     try:
-        return json.loads(response[0])
+        return json.loads(out)
     except ValueError:
         print('ERROR: Unable to read the application plist!')
         raise SystemExit(1)
@@ -124,30 +128,25 @@ def make_definition(args):
     info_plist_path = os.path.join(args.path, 'Contents', 'Info.plist')
 
     try:
-        info_plist = plistlib.readPlist(info_plist_path)
-    except EnvironmentError as err:
-        print('ERROR: {}'.format(err))
+        with open(info_plist_path, 'rb') as f:
+            info_plist = plistlib.load(f)
+    except (EnvironmentError, plistlib.InvalidFileException) as err:
+        print(f'ERROR: {err}')
         raise SystemExit(1)
-    except xml.parsers.expat.ExpatError:
-        info_plist = read_binary_plist(info_plist_path)
 
     if args.name:
         app_name = args.name
     else:
-        try:
-            app_name = info_plist['CFBundleName']
-        except KeyError:
-            app_name = str(app_filename.split('.app')[0])
+        app_name = info_plist.get('CFBundleName', app_filename.split('.app')[0])
 
     app_id = app_name.replace(' ', '')
-    app_bundle_id = info_plist['CFBundleIdentifier']
+    app_bundle_id = info_plist.get('CFBundleIdentifier')
 
     if args.app_version:
         app_version = args.app_version
     else:
-        try:
-            app_version = info_plist['CFBundleShortVersionString']
-        except KeyError:
+        app_version = info_plist.get('CFBundleShortVersionString')
+        if app_version is None:
             print("Could not find 'CFBundleShortVersionString', please provide "
                   "a value for the application version")
             app_version = input("[]: ") or None
@@ -158,12 +157,7 @@ def make_definition(args):
     if args.min_sys_version:
         app_min_os = args.min_sys_version
     else:
-        try:
-            app_min_os = info_plist['LSMinimumSystemVersion']
-        except KeyError:
-            print("Could not find 'LSMinimumSystemVersion', please provide a "
-                  "value for the minimum OS version")
-            app_min_os = input("[10.9]: ") or '10.9'
+        app_min_os = info_plist.get('LSMinimumSystemVersion', '10.9')
 
     app_last_modified = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
     app_timestamp = datetime.utcfromtimestamp(
@@ -243,7 +237,7 @@ def make_definition(args):
         for ext_att in args.extension_attribute:
             try:
                 with open(ext_att, 'rb') as f:
-                    ext_att_content = base64.b64encode(f.read())
+                    ext_att_content = base64.b64encode(f.read()).decode('ascii')
             except IOError as err:
                 print('ERROR: {}'.format(err))
                 raise SystemExit(1)
@@ -251,7 +245,7 @@ def make_definition(args):
                 patch_def['extensionAttributes'].append(
                     {
                         "key": app_name.lower().replace(' ', '-'),
-                        "value": ext_att_content.decode('ascii'),
+                        "value": ext_att_content,
                         "displayName": app_name
                     }
                 )
