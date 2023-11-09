@@ -4,6 +4,9 @@ This script will generate a full patch definition, or just the patch data, for a
 given macOS application. This tool is to provide a starting point for creating
 your own patch definitions to host on a patch server for Jamf Pro 10.2+.
 
+Update November 2023:
+Converted the script from python2 to python3
+
 ## Basic Usage
 
 ### Help Text
